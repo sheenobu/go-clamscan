@@ -3,6 +3,7 @@ package clamscan
 import (
 	"bufio"
 	"io"
+	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -77,10 +78,25 @@ func Run(opts *Options) (*Service, error) {
 
 // Scan scans the file and returns the result
 func (s *Service) Scan(file string) *Result {
-	//TODO: stat file before sending to clamscan
+	f, err := os.Open(file)
+	if err != nil {
+		return &Result{
+			File:  file,
+			Error: err,
+		}
+	}
+	if _, err = f.Stat(); err != nil {
+		f.Close()
+		return &Result{
+			File:  file,
+			Error: err,
+		}
+	}
+	f.Close()
 
 	if _, err := s.w.Write([]byte(file + "\n")); err != nil {
 		return &Result{
+			File:  file,
 			Error: err,
 		}
 	}
@@ -88,13 +104,33 @@ func (s *Service) Scan(file string) *Result {
 	line, err := s.r.ReadString('\n')
 	if err != nil {
 		return &Result{
+			File:  "",
 			Error: err,
 		}
 	}
 
-	i := strings.Split(strings.TrimSpace(line), ":")
+	line = strings.TrimSpace(line)
+	if line == "" {
+		return nil
+	}
+
+	fn := func(c rune) bool {
+		return c == ':'
+	}
+
+	i := strings.FieldsFunc(line, fn)
 
 	status := strings.TrimSpace(i[1])
+
+	if len(status) > len("FOUND") {
+		if status[len(status)-len("FOUND"):len(status)] == "FOUND" {
+			return &Result{
+				File:  i[0],
+				Found: true,
+				Virus: strings.TrimSpace(status[0 : len(status)-len("FOUND")]),
+			}
+		}
+	}
 
 	switch status {
 	case "OK":
@@ -107,13 +143,9 @@ func (s *Service) Scan(file string) *Result {
 			File:  i[0],
 			Found: false,
 		}
-	default:
-		return &Result{
-			File:  i[0],
-			Found: true,
-			Virus: i[1],
-		}
 	}
+
+	return nil
 }
 
 // Close closes the service and stops clamscan
