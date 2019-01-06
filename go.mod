@@ -1,1 +1,1 @@
-module go-clamscan
+module github.com/sheenobu/go-clamscan
